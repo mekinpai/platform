@@ -7,7 +7,7 @@ class StripeSeed extends SeedBase {
 	protected $error_message, $token, $client_id, $redirect_uri, $client_secret,$publishable_key, $access_token;
 	
 	public function __construct($user_id, $connection_id, $token=false) {
-		$this->settings_type = 'com.mailchimp';
+		$this->settings_type = 'com.stripe';
 		$this->user_id = $user_id;
 		$this->connection_id = $connection_id;
 		if ($this->getCASHConnection()) {
@@ -161,7 +161,7 @@ class StripeSeed extends SeedBase {
 	public function getTokenInformation() {
 		if ($this->token) {
 			require_once(CASH_PLATFORM_ROOT.'/lib/stripe/Stripe.php');
-			Stripe::setApiKey($this->client_secret);
+			Stripe::setApiKey($this->access_token);
 			$tokenInfo = Stripe_Token::retrieve($this->token);
 			if (!$tokenInfo) {
 				$this->setErrorMessage('getTokenInformation failed: ' . $this->getErrorMessage());
@@ -170,7 +170,7 @@ class StripeSeed extends SeedBase {
 				return $tokenInfo;
 			}
 		} else {
-			$this->setErrorMessage("No token was found.");
+			$this->setErrorMessage("Token is Missing!");
 			return false;
 		}
 	}
@@ -178,21 +178,50 @@ class StripeSeed extends SeedBase {
 
 
 	
-	public function doCharge($amount, $email) {
+	public function doCharge($amount, $currency, $charge_description) {
+		$return_array = array();
 		if ($this->token) {
+			try
+				{
 				require_once(CASH_PLATFORM_ROOT.'/lib/stripe/Stripe.php');
-				Stripe::setApiKey($this->client_secret);			
+				Stripe::setApiKey($this->access_token);			
 				$charge = Stripe_Charge::create(array(
-				  "amount" => $amount*100,
-				  "currency" => "usd",
+				  "amount" => $amount * 100,
+				  "currency" => $currency ,
 				  "source" => $this->token, // obtained with Stripe.js
-				  "description" => "Charge for ".$email
+				  "description" => $charge_description
 				));
-				return $charge;
+			
+				$return_array = $charge;
+				
+				
+				} catch(Stripe_CardError $e) {
+					$body = $e->getJsonBody();
+					$err  = $body['error'];
+					$return_array['status'] = $err['code'];
+					
+				} catch(Stripe_InvalidRequestError $e) {
+					$return_array['status'] = "invalid request";
+					
+				} catch(Stripe_AuthenticationError $e) {
+					$return_array['status'] = "authentication error";
+					
+				} catch(Stripe_ApiConnectionError $e) {
+					$return_array['status'] = "api connection error";
+					
+				} catch(Stripe_Error $e) {
+					$return_array['status'] = "stripe base error";
+					
+				} catch(Exception $e) {
+					$return_array['status'] = "undefined error";
+				}
+				
+			return $return_array;
 						
 		} else {
 			$this->setErrorMessage("No token was found.");
-			return false;
+			$return_array['status'] = 'token missing'; 
+			return $return_array;
 		}
 	}
 	
@@ -209,7 +238,6 @@ class StripeSeed extends SeedBase {
 		$payment_type='Sale', /* 'Sale', 'Order', or 'Authorization' */
 		$invoice=false
 	) {
-		error_log("SetExpressCheckout Stripe");
 		// Set NVP variables:
 		$nvp_parameters = array(
 			'PAYMENTREQUEST_0_AMT' => $payment_amount,

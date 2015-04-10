@@ -809,7 +809,10 @@ class CommercePlant extends PlantBase {
 	protected function finalizeRedirectedPayment($order_id,$creation_date,$direct_post_details=false) {
 		$order_details = $this->getOrder($order_id);
 		$transaction_details = $this->getTransaction($order_details['transaction_id']);
+		$order_totals = $this->getOrderTotals($order_details['order_contents']);
 		$connection_type = $this->getConnectionType($transaction_details['connection_id']);
+		
+		$currency = $this->getCurrencyForUser($order_details['user_id']);
 		switch ($connection_type) {
 			case 'com.paypal':
 				if (isset($_GET['token'])) {
@@ -886,6 +889,7 @@ class CommercePlant extends PlantBase {
 										$initial_details['COUNTRYCODE'],
 										$user_id
 									);
+			
 									$this->editTransaction(
 										$order_details['transaction_id'],
 										strtotime($final_details['TIMESTAMP']),
@@ -1029,13 +1033,12 @@ class CommercePlant extends PlantBase {
 				}
 				break;
 			case 'com.stripe':
-					if (isset($_GET['token'])) {
+					if (isset($_GET['token'])) {						
 						$pp = new StripeSeed($order_details['user_id'],$transaction_details['connection_id'],$_GET['token']);
 						$initial_details = $pp->getTokenInformation();
 						if ($initial_details) {
 							$order_totals = $this->getOrderTotals($order_details['order_contents']);
-							if ($order_totals['price']) {
-								$final_details = $pp->doCharge($order_totals['price'], $initial_details['email']);
+								$final_details = $pp->doCharge($order_totals['price'], $currency, $order_totals['description']);
 								if ($final_details) {
 									// look for a user to match the email. if not present, make one
 									$user_request = new CASHRequest(
@@ -1104,16 +1107,15 @@ class CommercePlant extends PlantBase {
 									);
 									$this->editTransaction(
 										$order_details['transaction_id'],
-										strtotime($final_details['created']),
+										$final_details['created'],
 										$final_details['id'], // not sure
-										json_encode($initial_details),
-										json_encode($final_details),
+										$initial_details->__toJSON(),
+										$final_details->__toJSON(),
 										1,
 										$final_details['amount']/100,
-										0,
+										0, //not sure
 										$final_details['status']
 									);
-									
 									// TODO: add code to order metadata
 									// bit of a hack, hard-wiring the email bits:
 									try {
@@ -1161,10 +1163,10 @@ class CommercePlant extends PlantBase {
 										);
 										$this->editTransaction(
 											$order_details['transaction_id'],
-											strtotime($initial_details['created']),
+											$initial_details['created'],
 											$initial_details['id'],
 											false,
-											json_encode($initial_details),
+											$initial_details->__toJSON(),
 											0,
 											false,
 											false,
@@ -1175,33 +1177,14 @@ class CommercePlant extends PlantBase {
 										// this is a successful transaction with the user hitting refresh
 										// as long as it's within 30 minutes of the original return true, otherwise
 										// call it false and allow the page to expire
-										if (time() - strtotime($initial_details['created']) < 180) {
+										if (time() - $initial_details['created'] < 180) {
 											return true;
 										} else {
 											return false;
 										}
 									}
 								}
-							} else {
-								// insufficient funds — user changed amount?
-								$this->editOrder(
-									$order_id,
-									0,
-									1
-								);
-								$this->editTransaction(
-									$order_details['transaction_id'],
-									strtotime($initial_details['created']),
-									$initial_details['id'],
-									false,
-									json_encode($initial_details),
-									0,
-									false,
-									false,
-									'incorrect amount'
-								);
-								return false;
-							}
+
 						} else {
 							// order reporting failure
 							$this->editOrder(
@@ -1211,14 +1194,14 @@ class CommercePlant extends PlantBase {
 							);
 							$this->editTransaction(
 								$order_details['transaction_id'],
-								strtotime($initial_details['created']),
-								$initial_details['id'],
+								time(),
 								false,
-								json_encode($initial_details),
+								false,
+								false,
 								0,
 								false,
 								false,
-								'payment failed'
+								'token information missing'
 							);
 							return false;
 						}
