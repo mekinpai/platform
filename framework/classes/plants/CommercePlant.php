@@ -622,6 +622,7 @@ class CommercePlant extends PlantBase {
 	}
 	
 	protected function initiateCheckout($user_id,$connection_id,$order_contents=false,$item_id=false,$element_id=false,$total_price=false,$return_url_only=false) {
+		 $connection_type= $this->getConnectionType($connection_id);
 		if (!$order_contents && !$item_id) {
 			return false;
 		} else {
@@ -649,7 +650,13 @@ class CommercePlant extends PlantBase {
 			}
 
 			$currency = $this->getCurrencyForUser($user_id);
-
+			
+			//develop this case for Stripe since the word "abandoned" when user just closes the javascript seems confusing.
+			$initial_status = 'abandoned';
+			if($connection_type == 'com.stripe'){
+				$initial_status = 'canceled';
+			}
+			
 			$transaction_id = $this->addTransaction(
 				$user_id,
 				$connection_id,
@@ -661,7 +668,7 @@ class CommercePlant extends PlantBase {
 				-1,
 				0,
 				0,
-				'abandoned',
+				$initial_status,
 				$currency
 			);
 			$order_id = $this->addOrder(
@@ -764,9 +771,10 @@ class CommercePlant extends PlantBase {
 					return $redirect_url;
 				}
 				break;
-			case 'com.stripe':
+			case 'com.stripe':				
 				$pp = new StripeSeed($order_details['user_id'],$transaction_details['connection_id']);
-				$return_url = CASHSystem::getCurrentURL() . '?cash_request_type=commerce&cash_action=finalizepayment&order_id=' . $order_id . '&creation_date=' . $order_details['creation_date'];
+				//add price_addition as another parameter to sent to the finalizeRedirectedPayment method.
+				$return_url = CASHSystem::getCurrentURL() . '?cash_request_type=commerce&cash_action=finalizepayment&order_id=' . $order_id . '&creation_date=' . $order_details['creation_date'].'&price_addition='.$price_addition;
 				
 				if ($element_id) {
 					$return_url .= '&element_id=' . $element_id;
@@ -777,6 +785,7 @@ class CommercePlant extends PlantBase {
 					$require_shipping = true;
 					$allow_note = true;
 				}
+				
 				$redirect_url = $pp->setExpressCheckout(
 					$order_totals['price'] + $price_addition,
 					'order-' . $order_id,
@@ -806,7 +815,7 @@ class CommercePlant extends PlantBase {
 		return false;
 	}
 	
-	protected function finalizeRedirectedPayment($order_id,$creation_date,$direct_post_details=false) {
+	protected function finalizeRedirectedPayment($order_id,$creation_date,$direct_post_details=false,$price_addition=0) {
 		$order_details = $this->getOrder($order_id);
 		$transaction_details = $this->getTransaction($order_details['transaction_id']);
 		$order_totals = $this->getOrderTotals($order_details['order_contents']);
@@ -1033,12 +1042,12 @@ class CommercePlant extends PlantBase {
 				}
 				break;
 			case 'com.stripe':
-					if (isset($_GET['token'])) {						
-						$pp = new StripeSeed($order_details['user_id'],$transaction_details['connection_id'],$_GET['token']);
+					if (isset($_GET['stripe-token'])) {
+						$pp = new StripeSeed($order_details['user_id'],$transaction_details['connection_id'],$_GET['stripe-token']);
 						$initial_details = $pp->getTokenInformation();
 						if ($initial_details) {
 							$order_totals = $this->getOrderTotals($order_details['order_contents']);
-								$final_details = $pp->doCharge($order_totals['price'], $currency, $order_totals['description']);
+								$final_details = $pp->doCharge($order_totals['price'] + $price_addition, $currency, $order_totals['description']);
 								if ($final_details) {
 									// look for a user to match the email. if not present, make one
 									$user_request = new CASHRequest(
@@ -1096,7 +1105,7 @@ class CommercePlant extends PlantBase {
 										// there's something physical. sorry dude. gotta deal with it still.
 										$is_fulfilled = 0;
 									}
-
+									//after finished charging money. Edit the database.
 									$this->editOrder(
 										$order_id,
 										$is_fulfilled,

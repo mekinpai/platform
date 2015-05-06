@@ -1,3 +1,9 @@
+<!--
+This file won't be used anymore. It was developped initially to support Stripe Checkout process.
+It supports Stripe checkout process by redirecting the user to this page instead of calling the Stripe javascript in the same webpage without redirecting user.
+Some security concerns has been taken into account in developping this file. We encrypt and encode the sent parameters over the URL.
+-->
+
 <html>
 <body>
 

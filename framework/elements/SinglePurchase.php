@@ -35,7 +35,13 @@ class SinglePurchase extends ElementBase {
 		} else {
 			$this->element_data['is_available'] = false;
 		}
-
+		// use "is_popup" as a mustache variable to distinguish between Redirect to another page (Paypal) or just pop out javascript (Stripe).
+		$connection_type = $this->getConnectionType($this->options['connection_id']);
+		if($connection_type != "com.paypal"){
+			$this->element_data['is_popup'] = true;	
+		}else{
+			$this->element_data['is_popup'] = false;
+		}
 		$currency_request = new CASHRequest(
 			array(
 				'cash_request_type' => 'system', 
@@ -79,6 +85,7 @@ class SinglePurchase extends ElementBase {
 				$this->element_data['error_message'] = print_r($this->original_response,true);
 			}
 		} elseif (isset($_POST['singlepurchase1'])) {
+			
 			$total_price = $item['price'];
 			if (isset($_POST['total_price'])) {
 				$total_price = $_POST['total_price'];

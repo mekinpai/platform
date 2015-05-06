@@ -1,5 +1,6 @@
 {
 	"name":"Stripe",
+	"instructions":"Stripe issues an API secret key. Go to Stripe Dashboard > Account Settings > API keys",
 	"description":"Enter Stripe API key.",
 	"type":"com.stripe",
 	"seed":"StripeSeed",

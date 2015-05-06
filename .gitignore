@@ -13,4 +13,3 @@ sandbox/*
 __test_environment.json
 
 .DS_Store
-interfaces/Test.php

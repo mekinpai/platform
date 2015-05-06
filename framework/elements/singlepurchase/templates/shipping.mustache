@@ -66,7 +66,6 @@
 	to {-o-transform: rotate(359deg);transform: rotate(359deg);}
 }
 </style>
-
 <form id="cash_{{element_type}}_form_{{element_id}}" class="cash_form {{element_type}}" method="post" action="">
 <input type="hidden" name="cash_request_type" value="commerce" />
 <input type="hidden" name="cash_action" value="initiatecheckout" />
@@ -84,7 +83,43 @@
 				<input type="button" id="shipping2" data-shiping="{{region2_cost}}" value="{{region2_name}} - {{currency}}{{region2_cost}}" class="button" />
 			{{/no_shipping}}
 			{{#no_shipping}}
+				{{#is_popup}}
+					{{#error_message}}<div class="cash_error cash_{{element_type}}_error">{{error_message}}</div>{{/error_message}}
+					<div class="packshot">
+					<div class="front"></div><!--front-->
+					</div><!--packshot-->
+					<div class="info">
+					<span class="cash_singlepurchase_itemname">{{item_name}}</span>
+					{{#item_flexible_price}}
+					<span class="cash_singlepurchase_itemprice">({{currency}}{{item_price}} {{copy_flexibleprice_suffix}})</span>
+					{{/item_flexible_price}}
+					<span class="cash_singlepurchase_itemdescription">{{item_description}}</span>
+					
+					{{#is_available}}
+						<form id="cash_{{element_type}}_form_{{element_id}}" class="cash_form {{element_type}}" method="post" action="">
+						<input type="hidden" name="singlepurchase1" value="go" />
+						<input type="hidden" name="user_id" value="{{user_id}}" />
+						{{#item_flexible_price}}
+						<span class="cash_singlepurchase_flexible_price">	
+							<span class="cash_singlepurchase_currency">{{currency}}</span>
+							<input type="text" name="total_price" class="total_price" value="{{total_price}}" />
+						</span>
+						{{/item_flexible_price}}
+						<input type="submit" value="{{^item_flexible_price}}{{currency}}{{item_price}} - {{/item_flexible_price}}{{copy_buy}}" class="button" /><br />
+						</form>
+					{{/is_available}}
+					
+					{{^is_available}}
+						<span class="cash_singlepurchase_unavailable">
+							Sorry, this item is currently unavailable.
+						</span>
+					{{/is_available}}
+					</div>
+				{{/is_popup}}
+				
+				{{^is_popup}}
 				Redirecting...
+				{{/is_popup}}
 			{{/no_shipping}}
 		</div>
 		<div id="cashmusic-sp-overlay">
@@ -92,6 +127,8 @@
 		</div>
 	</div>
 </form>
+
+
 
 <script type="text/javascript">
 	(function() {
@@ -106,10 +143,10 @@
 					} else if (window.event && window.event.returnValue) {
 						window.eventReturnValue = false;
 					}
-
+					{{^is_popup}}
 					document.getElementById('actionspc').style.opacity='0.4';
 					document.getElementById('cashmusic-sp-overlay').style.display='block';
-
+					{{/is_popup}}
 					var submitUrl = window.location.protocol + '//' + window.location.host;
 					if (window.location.port&&submitUrl.indexOf("localhost") ==-1) {
 						submitUrl += ':' + window.location.port;
@@ -127,6 +164,34 @@
 						function(thereply) {
 							if (thereply.substring(0,4) == 'http') {
 								top.location.href = thereply;
+							}else{
+							var parsedData = JSON.parse(thereply);
+							window.cashmusic.stripe.generateToken({
+								"key":parsedData['pk'],
+								"image":"https://www-cashmusic.netdna-ssl.com/admin/ui/default/assets/images/logo.svg",
+								"description":parsedData['desc'],
+								"amount":parsedData['amount'],
+								"currency":parsedData['currency'],
+								"bitcoin":true
+							});
+												
+							window.cashmusic.events.add(window.cashmusic,'stripetokengenerated',function(e) {
+								var token=document.createElement("input");
+								token.setAttribute("type","hidden");
+								token.setAttribute("name","stripe-token");
+								token.setAttribute("value",e.detail.id);
+								elementForm.appendChild(token);
+								
+								var details=document.createElement("input");
+								details.setAttribute("type","hidden");
+								details.setAttribute("name","stripe-data");
+								details.setAttribute("value",JSON.stringify(e.detail));
+								elementForm.appendChild(details);
+								elementForm.elements.namedItem("cash_action").value = "finalizepayment";
+								var returnURL = parsedData['return_url']+"&stripe-token="+e.detail.id ;
+								top.location.href = returnURL;
+								//elementForm.submit();
+							});							
 							}
 						}
 					);

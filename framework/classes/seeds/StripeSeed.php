@@ -1,6 +1,8 @@
 <?php
 /**
- * 
+ * This class is responsible to speak to Stripe API.
+ * It basically provides function for authentication and charging money.
+ * There are also some functions that will not be used for now. Butm\, they might be beneficial in the future.
  *
  **/
 class StripeSeed extends SeedBase {
@@ -32,14 +34,14 @@ class StripeSeed extends SeedBase {
 		}
 	}
 	
-
+	/*
+	 * This method is responsible for checking for CM's Stripe Api credentials defined in "/framework/settings/connections.json" before proceeding to the authentication through Stripe Website.
+	 * It then gets the Stripe URL from the getAuthorizationUrl method.
+	 * 
+	 */
 	public static function getRedirectMarkup($data=false) {
 		$connections = CASHSystem::getSystemSettings('system_connections');
 		if (isset($connections['com.stripe'])) {
-			//while (list($key, $value) = each($connections['com.stripe'])) {
-			// error_log("Key: $key; Value: $value");
-			//}
-			//$login_url = "https://connect.stripe.com/oauth/authorize?response_type=code&client_id=ca_5eCOhyxL07uaKmLYp44UPuAWzrPx1CKi";
 			$login_url = StripeSeed::getAuthorizationUrl($connections['com.stripe']['client_id'],$connections['com.stripe']['client_secret']);
 			$return_markup = '<h4>Stripe</h4>'
 						   . '<p>This will redirect you to a secure login at Stripe and bring you right back.</p>'
@@ -49,45 +51,26 @@ class StripeSeed extends SeedBase {
 			return 'Please add default stripe api credentials.';
 		}
 	}
+	
+	/*
+	 * This method is used to handle the response back from Stripe during the authentication process.
+	 * After it receives the code back, it then sent the code to Stripe again through method "exchangeCode" to get the user credentitals.
+	 * It then uses the returned user credentials to get the user information and saves them to the DB.
+	 * 
+	 */
+	
 	public static function handleRedirectReturn($data=false) {
 		if (isset($data['code'])) {
 			$connections = CASHSystem::getSystemSettings('system_connections');
-			/*
-			foreach ($data as &$value) {
-				error_log($value);
-			}
-			*/
-			// will be moved to method or new classes
 			if (isset($connections['com.stripe'])) {
-			 //error_log($data['code']."*****)))");
-			/* 
-			$token_request_body = array(
-				'grant_type' => 'authorization_code',
-				'client_id' => 'ca_5eCOhyxL07uaKmLYp44UPuAWzrPx1CKi',
-				'code' => $data['code'],
-				'client_secret' => 'sk_test_Q8qTx3blDe9wIfORkxLFIAHb'
-			);
-
-			 $req = curl_init('https://connect.stripe.com/oauth/token');
-			 curl_setopt($req, CURLOPT_RETURNTRANSFER, true);
-			 curl_setopt($req, CURLOPT_POST, true );
-			 curl_setopt($req, CURLOPT_POSTFIELDS, http_build_query($token_request_body));
-									
-			// TODO: Additional error handling
-			  $respCode = curl_getinfo($req, CURLINFO_HTTP_CODE);
-			  $resp = json_decode(curl_exec($req), true);
-			  curl_close($req);
-			*/
+			//exchange the returned code for user credentials.
 			$credentials = StripeSeed::exchangeCode($data['code'],
 								$connections['com.stripe']['client_id'],
 								$connections['com.stripe']['client_secret']);
-			//error_log("*******".$resp[access_token]);
-			//foreach ($credentials as $value => $v) {
-			//	error_log("\$a[$value] => $v.\n");
-			//}
-			error_log($credentials['userid']);
 				if (isset($credentials['refresh'])) {
+					//get the user information from the returned credentials.
 					$user_info = StripeSeed::getUserInfo($credentials['access']);
+					//create new connection and add it to the database.
 					$new_connection = new CASHConnection(AdminHelper::getPersistentData('cash_effective_user'));
 					$result = $new_connection->setSettings(
 						$user_info['email'] . ' (Stripe)',
@@ -122,15 +105,20 @@ class StripeSeed extends SeedBase {
 		return $this->error_message;
 	}
 	
+	/*
+	 * This method makes use of Stripe library in getting the user information from the returned credentials during the authentication process.
+	 */
 	public static function getUserInfo($credentials) {
 		require_once(CASH_PLATFORM_ROOT.'/lib/stripe/Stripe.php');
 		Stripe::setApiKey($credentials);
 		$user_info = Stripe_Account::retrieve();
-		//error_log("****USERINFO***".$user_info['email']);
 		return $user_info;
 	}
 	
 	/**
+	 *
+	 * This method is used to exchange the returned code from Stripe with Stripe again to get the user credentials during the authentication process.
+	 * 
 	 * Exchange an authorization code for OAuth 2.0 credentials.
 	 *
 	 * @param String $authorization_code Authorization code to exchange for OAuth 2.0 credentials.
@@ -151,12 +139,22 @@ class StripeSeed extends SeedBase {
 		}
 	}
 	
+	/*
+	 * This method is used to get the URL to redirect user to Stripe website in the OAuth process.
+	 */
+	
 	public static function getAuthorizationUrl($client_id,$client_secret) {
 		require_once(CASH_PLATFORM_ROOT.'/lib/stripe/StripeOAuth.class.php');
 		$client = new StripeOAuth($client_id, $client_secret);
 		$auth_url = $client->getAuthorizeUri();
 		return $auth_url;	
 	}
+	
+	/*
+	 * This method is used during the charge process. It is used after receiving token generated from the Stripe Checkout Javascript.
+	 * It will send the token to Stripe to exchange for its information. Such information will be used throughout the charge process (such as, create new user).
+	 * This happens before the actual charge occurs.
+	 */
 	
 	public function getTokenInformation() {
 		if ($this->token) {
@@ -176,7 +174,10 @@ class StripeSeed extends SeedBase {
 	}
 	
 
-
+	/*
+	 * The actual charge occurs with the use of this method.
+	 * There are also some error handlings implemented in this method.
+	 */
 	
 	public function doCharge($amount, $currency, $charge_description) {
 		$return_array = array();
@@ -188,10 +189,10 @@ class StripeSeed extends SeedBase {
 				$charge = Stripe_Charge::create(array(
 				  "amount" => $amount * 100,
 				  "currency" => $currency ,
-				  "source" => $this->token, // obtained with Stripe.js
+				  "source" => $this->token, // obtained from Stripe.js
 				  "description" => $charge_description
 				));
-			
+				
 				$return_array = $charge;
 				
 				
@@ -225,6 +226,10 @@ class StripeSeed extends SeedBase {
 		}
 	}
 	
+	/*
+	 * This method is used to generate Json chunk containing the information required by the Stripe checkout javascript.
+	 * Some of the parameters are not used but sent to this method just in case we need them in the future.
+	 */
 	
 	public function setExpressCheckout(
 		$payment_amount,
@@ -238,46 +243,30 @@ class StripeSeed extends SeedBase {
 		$payment_type='Sale', /* 'Sale', 'Order', or 'Authorization' */
 		$invoice=false
 	) {
-		// Set NVP variables:
-		$nvp_parameters = array(
-			'PAYMENTREQUEST_0_AMT' => $payment_amount,
-			'PAYMENTREQUEST_0_PAYMENTACTION' => $payment_type,
-			'PAYMENTREQUEST_0_CURRENCYCODE' => $currency_id,
-			'PAYMENTREQUEST_0_ALLOWEDPAYMENTMETHOD' => 'InstantPaymentOnly',
-			'PAYMENTREQUEST_0_DESC' => $ordername,
-			'RETURNURL' => $return_url,
-			'CANCELURL' => $cancel_url,
-			'L_PAYMENTREQUEST_0_AMT0' => $payment_amount,
-			'L_PAYMENTREQUEST_0_NUMBER0' => $ordersku,
-			'L_PAYMENTREQUEST_0_NAME0' => $ordername,
-			'NOSHIPPING' => '0',
-			'ALLOWNOTE' => '0',
-			'SOLUTIONTYPE' => 'Sole',
-			'LANDINGPAGE' => 'Billing'
-		);
-		if (!$request_shipping_info) {
-			$nvp_parameters['NOSHIPPING'] = 1;
-		}
-		if ($allow_note) {
-			$nvp_parameters['ALLOWNOTE'] = 1;
-		}
-		if ($invoice) {
-			$nvp_parameters['PAYMENTREQUEST_0_INVNUM'] = $invoice;
-		}
 		
 		$this->cash_base_url = CASH_PUBLIC_URL."/stripe.php";
 		$pk=$this->publishable_key;
 		$desc=$ordername;
 		$amnt=$payment_amount*100;
-		$secretParams = "desc=$desc&pk=$pk&amnt=$amnt";
 		
-		$encryptedSecret = Stripeseed::cryptoJsAesEncrypt("cashmusic", $secretParams);
-		$stripe_url = $this->cash_base_url . "?return_url=$return_url&cancel_url=$cancel_url&param=".base64_encode($encryptedSecret);
-		return $stripe_url;
+		//Below was used initially to redirect user to another webpage.
+		
+		//$secretParams = "desc=$desc&pk=$pk&amnt=$amnt";
+		//$encryptedSecret = Stripeseed::cryptoJsAesEncrypt("cashmusic", $secretParams);
+		//$stripe_url = $this->cash_base_url . "?return_url=$return_url&cancel_url=$cancel_url&param=".base64_encode($encryptedSecret);
+
+		$stripeParam = array(
+				'amount' => $amnt,
+				'pk' => $pk,
+				'desc' => $desc,
+				'currency' => $currency_id,
+				'return_url' => $return_url
+				);
+		return json_encode($stripeParam);
 	}
 /*
- * copy from here
-http://stackoverflow.com/questions/24337317/encrypt-with-php-decrypt-with-javascript-cryptojs	
+ * This isn't used anymore. It was developped initially to support encrpytion of parameters sent via the URL.
+ * copy from here http://stackoverflow.com/questions/24337317/encrypt-with-php-decrypt-with-javascript-cryptojs	
 */
 	function cryptoJsAesEncrypt($passphrase, $value){
 	    $salt = openssl_random_pseudo_bytes(8);
